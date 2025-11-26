@@ -1,0 +1,16 @@
+# Ignore patterns for DVC
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.env
+*.log
+.git/
+.dvc/
+

@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+
+# DVC
+.dvc/
+# Allow .dvc files (they should be tracked)
+!*.dvc
+data/raw/
+# Ignore data files but allow .dvc files
+data/processed/*.parquet
+data/processed/*.csv
+!data/processed/*.dvc
+*.pkl
+*.joblib
+*.h5
+*.model
+
+# Airflow
+airflow.db
+airflow.cfg
+logs/
+*.log
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+
+# DVC - ignore data files but track .dvc files
+data/processed/*.parquet
+!data/processed/*.dvc

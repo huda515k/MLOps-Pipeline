@@ -1,0 +1,5 @@
+outs:
+- md5: 378989342886cf147fe038d37ce7600b
+  size: 35773
+  hash: md5
+  path: processed_weather_20251126_181052.parquet
