@@ -1,0 +1,41 @@
+# Optimized FastAPI Dockerfile - faster builds
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements-optimized.txt requirements.txt
+
+# Install Python packages in stages for better caching
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir \
+    pandas>=2.0.0 numpy>=1.24.0 scikit-learn>=1.3.0 joblib>=1.3.0 pyarrow>=10.0.0 && \
+    pip install --no-cache-dir \
+    fastapi>=0.104.0 uvicorn>=0.24.0 pydantic>=2.5.0 requests>=2.31.0 && \
+    pip install --no-cache-dir \
+    mlflow>=2.9.0 dagshub>=0.3.19 && \
+    pip install --no-cache-dir \
+    prometheus-client>=0.19.0 python-dotenv>=1.0.0 pyyaml>=6.0.0
+
+# Copy application code
+COPY src/ /app/src/
+COPY scripts/ /app/scripts/
+
+# Create directories
+RUN mkdir -p /app/models /app/data/raw /app/data/processed
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl --fail http://localhost:8000/health || exit 1
+
+# Run the application
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+

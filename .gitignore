@@ -63,7 +63,27 @@ Thumbs.db
 .ipynb_checkpoints/
 *.ipynb
 
+# Documentation (keep only README.md)
+*.md
+!README.md
+!client/README.md
+
+# Setup and helper scripts (not needed in repo)
+setup_dagshub.sh
+*.sh
+!scripts/*.py
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
 
 # DVC - ignore data files but track .dvc files
 data/processed/*.parquet
 !data/processed/*.dvc
+
+# Documentation (keep only README.md)
+*.md
+!README.md
