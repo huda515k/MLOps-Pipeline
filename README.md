@@ -119,7 +119,5 @@ This will start:
 - Data drift detection
 - Alerting on performance degradation
 
-## License
 
-MIT
 
