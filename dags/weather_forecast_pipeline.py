@@ -87,10 +87,11 @@ def transform_data_task(**context):
 
 
 def generate_profiling_report(**context):
-    """Generate pandas profiling report and log to MLflow"""
+    """Generate pandas profiling report and log to MLflow/Dagshub"""
     import pandas as pd
     import mlflow
     import os
+    import tempfile
     from dotenv import load_dotenv
     
     load_dotenv()
@@ -107,61 +108,115 @@ def generate_profiling_report(**context):
         print(f"❌ Failed to load data: {e}")
         raise
     
-    # Create comprehensive data profile report (pandas-profiling has compatibility issues)
-    report_path = "/tmp/data_profile.txt"
-    try:
-        with open(report_path, "w") as f:
-            f.write("=" * 80 + "\n")
-            f.write("WEATHER DATA PROFILE REPORT\n")
-            f.write("=" * 80 + "\n\n")
-            f.write(f"Data Shape: {df.shape[0]} rows x {df.shape[1]} columns\n")
-            f.write(f"Collection Time: {datetime.now().isoformat()}\n\n")
-            
-            f.write("-" * 80 + "\n")
-            f.write("COLUMNS\n")
-            f.write("-" * 80 + "\n")
-            f.write(f"Total columns: {len(df.columns)}\n")
-            f.write(f"Column names: {', '.join(df.columns)}\n\n")
-            
-            f.write("-" * 80 + "\n")
-            f.write("DATA TYPES\n")
-            f.write("-" * 80 + "\n")
-            f.write(f"{df.dtypes.to_string()}\n\n")
-            
-            f.write("-" * 80 + "\n")
-            f.write("MISSING VALUES\n")
-            f.write("-" * 80 + "\n")
-            missing = df.isnull().sum()
-            f.write(f"{missing[missing > 0].to_string() if missing.sum() > 0 else 'No missing values'}\n\n")
-            
-            f.write("-" * 80 + "\n")
-            f.write("SUMMARY STATISTICS\n")
-            f.write("-" * 80 + "\n")
-            f.write(f"{df.describe().to_string()}\n\n")
-            
-            f.write("-" * 80 + "\n")
-            f.write("SAMPLE DATA (First 5 rows)\n")
-            f.write("-" * 80 + "\n")
-            f.write(f"{df.head().to_string()}\n\n")
+    # Configure Dagshub/MLflow tracking
+    DAGSHUB_USERNAME = os.getenv("DAGSHUB_USERNAME", "")
+    DAGSHUB_REPO = os.getenv("DAGSHUB_REPO", "")
+    DAGSHUB_TOKEN = os.getenv("DAGSHUB_TOKEN", "")
+    
+    # Set MLflow tracking URI (Dagshub if configured, otherwise local)
+    if DAGSHUB_USERNAME and DAGSHUB_REPO and DAGSHUB_TOKEN:
+        try:
+            # Initialize Dagshub for proper MLflow integration
+            import dagshub
+            dagshub.init(repo_owner=DAGSHUB_USERNAME, repo_name=DAGSHUB_REPO, mlflow=True, token=DAGSHUB_TOKEN)
+            print(f"✅ Dagshub initialized")
+        except Exception as e:
+            print(f"⚠️  Dagshub init failed (non-critical): {e}")
         
-        print("✅ Data profile report generated")
+        MLFLOW_TRACKING_URI = f"https://{DAGSHUB_USERNAME}:{DAGSHUB_TOKEN}@dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow"
+        print(f"✅ Using Dagshub MLflow: https://dagshub.com/{DAGSHUB_USERNAME}/{DAGSHUB_REPO}.mlflow")
+    else:
+        MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+        print(f"Using local MLflow: {MLFLOW_TRACKING_URI}")
+        if not DAGSHUB_USERNAME:
+            print("⚠️  DAGSHUB_USERNAME not set")
+        if not DAGSHUB_REPO:
+            print("⚠️  DAGSHUB_REPO not set")
+        if not DAGSHUB_TOKEN:
+            print("⚠️  DAGSHUB_TOKEN not set")
+    
+    # Generate Pandas Profiling HTML report
+    report_path = None
+    use_profiling = False
+    try:
+        # Try to use pandas-profiling (or ydata-profiling if available)
+        try:
+            from ydata_profiling import ProfileReport
+            use_profiling = True
+            print("✅ Using ydata-profiling (maintained fork)")
+        except ImportError:
+            try:
+                from pandas_profiling import ProfileReport
+                use_profiling = True
+                print("✅ Using pandas-profiling")
+            except ImportError:
+                print("⚠️  Neither ydata-profiling nor pandas-profiling found, using basic report")
+                ProfileReport = None
+                use_profiling = False
+        
+        if use_profiling and ProfileReport:
+            # Generate comprehensive HTML profile report
+            print("Generating comprehensive data profile report...")
+            profile = ProfileReport(
+                df,
+                title="Weather Data Profile Report",
+                minimal=False,
+                explorative=True,
+                html={"style": {"full_width": True}}
+            )
+            
+            # Save to temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as tmp:
+                report_path = tmp.name
+                profile.to_file(report_path)
+            
+            print(f"✅ Pandas Profiling HTML report generated: {report_path}")
+        else:
+            # Fallback: Create basic text report if profiling library not available
+            print("⚠️  Creating basic text report (profiling library not available)")
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp:
+                report_path = tmp.name
+                tmp.write("=" * 80 + "\n")
+                tmp.write("WEATHER DATA PROFILE REPORT\n")
+                tmp.write("=" * 80 + "\n\n")
+                tmp.write(f"Data Shape: {df.shape[0]} rows x {df.shape[1]} columns\n")
+                tmp.write(f"Collection Time: {datetime.now().isoformat()}\n\n")
+                tmp.write("-" * 80 + "\n")
+                tmp.write("SUMMARY STATISTICS\n")
+                tmp.write("-" * 80 + "\n")
+                tmp.write(f"{df.describe().to_string()}\n\n")
+            
     except Exception as e:
         print(f"❌ Failed to create profile report: {e}")
         raise
     
-    # Log to MLflow (if available)
-    MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-    
+    # Log to MLflow/Dagshub
     try:
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
         mlflow.set_experiment("weather_forecasting")
         
         with mlflow.start_run(run_name=f"data_profile_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
+            # Log the profiling report as artifact
             mlflow.log_artifact(report_path, "data_profiling")
+            
+            # Log metadata as parameters
             mlflow.log_param("data_shape", f"{df.shape[0]}x{df.shape[1]}")
             mlflow.log_param("collection_date", datetime.now().isoformat())
+            mlflow.log_param("total_columns", len(df.columns))
+            mlflow.log_param("missing_values", int(df.isnull().sum().sum()))
+            mlflow.log_param("report_type", "pandas_profiling" if use_profiling else "basic_text")
+            
+            # Log data quality metrics
+            mlflow.log_metric("data_quality_score", 1.0 - (df.isnull().sum().sum() / (df.shape[0] * df.shape[1])))
         
-        print(f"✓ Profiling report generated and logged to MLflow")
+        print(f"✅ Profiling report logged to MLflow/Dagshub")
+        print(f"✅ Report available in MLflow UI under 'data_profiling' artifact")
+        
+        # Clean up temporary file
+        if report_path and os.path.exists(report_path):
+            os.unlink(report_path)
+            print(f"✅ Temporary report file cleaned up")
+            
     except Exception as e:
         print(f"⚠️  MLflow logging failed: {e}")
         print(f"⚠️  Profiling report saved to: {report_path}")
@@ -227,11 +282,12 @@ def version_data(**context):
     )
     
     if result.returncode != 0:
-        print(f"DVC add failed: {result.stderr}")
-        # Don't fail the DAG if DVC fails, just log it
-        print("Warning: DVC versioning failed, continuing...")
+        print(f"❌ DVC add failed: {result.stderr}")
+        print(f"STDOUT: {result.stdout}")
+        raise Exception(f"DVC versioning failed: {result.stderr}")
     else:
         print("✓ Data versioned with DVC")
+        print(f"DVC output: {result.stdout}")
 
 
 # Define tasks

@@ -20,7 +20,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       
-      - name: Fetch model from MLflow
+      - name: Fetch model from MLflow Model Registry
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         run: |
@@ -29,42 +29,123 @@ jobs:
           python -c "
           import mlflow
           import os
-          import shutil
           from pathlib import Path
           
           mlflow.set_tracking_uri(os.getenv('MLFLOW_TRACKING_URI'))
           client = mlflow.tracking.MlflowClient()
-          experiment = client.get_experiment_by_name('weather_forecasting')
           
-          if experiment:
-              runs = client.search_runs(experiment.experiment_id, order_by=['metrics.val_rmse ASC'], max_results=1)
-              if runs:
-                  run_id = runs[0].info.run_id
-                  model_uri = f'runs:/{run_id}/model'
+          MODEL_NAME = 'weather_forecast_model'
+          Path('models').mkdir(exist_ok=True)
+          
+          try:
+              # Try to get model from Model Registry (Production stage)
+              try:
+                  latest_versions = client.get_latest_versions(MODEL_NAME, stages=['Production'])
+                  if latest_versions:
+                      model_version = latest_versions[0]
+                      model_uri = f'models:/{MODEL_NAME}/Production'
+                      print(f'✅ Found model in Registry (Production): {model_version.version}')
+                  else:
+                      # Try Staging
+                      latest_versions = client.get_latest_versions(MODEL_NAME, stages=['Staging'])
+                      if latest_versions:
+                          model_version = latest_versions[0]
+                          model_uri = f'models:/{MODEL_NAME}/Staging'
+                          print(f'✅ Found model in Registry (Staging): {model_version.version}')
+                      else:
+                          # Fallback: Get latest version from Registry (any stage)
+                          latest_versions = client.get_latest_versions(MODEL_NAME)
+                          if latest_versions:
+                              model_version = latest_versions[0]
+                              model_uri = f'models:/{MODEL_NAME}/{model_version.current_stage}'
+                              print(f'✅ Found model in Registry ({model_version.current_stage}): {model_version.version}')
+                          else:
+                              raise Exception('No model found in Registry')
+              
+              except Exception as reg_error:
+                  print(f'⚠️  Model Registry lookup failed: {reg_error}')
+                  print('⚠️  Falling back to best run from experiment...')
                   
-                  # Download model
-                  Path('models').mkdir(exist_ok=True)
-                  mlflow.sklearn.save_model(mlflow.sklearn.load_model(model_uri), 'models/weather_model')
-                  print(f'Model downloaded from run: {run_id}')
+                  # Fallback: Search for best run
+                  experiment = client.get_experiment_by_name('weather_forecasting')
+                  if experiment:
+                      runs = client.search_runs(experiment.experiment_id, order_by=['metrics.val_rmse ASC'], max_results=1)
+                      if runs:
+                          run_id = runs[0].info.run_id
+                          model_uri = f'runs:/{run_id}/model'
+                          print(f'✅ Using best run from experiment: {run_id}')
+                      else:
+                          raise Exception('No runs found in experiment')
+                  else:
+                      raise Exception('Experiment not found')
+              
+              # Download model
+              model = mlflow.sklearn.load_model(model_uri)
+              mlflow.sklearn.save_model(model, 'models/weather_model')
+              print(f'✅ Model downloaded successfully from: {model_uri}')
+              
+          except Exception as e:
+              print(f'❌ Failed to fetch model: {e}')
+              exit(1)
           "
       
-      - name: Build Docker image
+      - name: Build and Push Docker image
         run: |
           VERSION=$(date +%Y%m%d-%H%M%S)
-          docker build -f docker/Dockerfile.fastapi -t ${{ secrets.DOCKER_USERNAME }}/weather-forecast-api:$VERSION .
-          docker tag ${{ secrets.DOCKER_USERNAME }}/weather-forecast-api:$VERSION ${{ secrets.DOCKER_USERNAME }}/weather-forecast-api:latest
-      
-      - name: Push Docker image
-        run: |
-          VERSION=$(date +%Y%m%d-%H%M%S)
-          docker push ${{ secrets.DOCKER_USERNAME }}/weather-forecast-api:$VERSION
-          docker push ${{ secrets.DOCKER_USERNAME }}/weather-forecast-api:latest
+          IMAGE_NAME="${{ secrets.DOCKER_USERNAME }}/weather-forecast-api"
+          
+          echo "Building Docker image version: $VERSION"
+          docker build -f docker/Dockerfile.fastapi.optimized -t $IMAGE_NAME:$VERSION .
+          docker tag $IMAGE_NAME:$VERSION $IMAGE_NAME:latest
+          
+          echo "Pushing Docker image to registry..."
+          docker push $IMAGE_NAME:$VERSION
+          docker push $IMAGE_NAME:latest
+          echo "✅ Image pushed: $IMAGE_NAME:$VERSION and $IMAGE_NAME:latest"
       
       - name: Verify deployment
         run: |
-          echo "Docker image built and pushed successfully"
-          echo "Image: ${{ secrets.DOCKER_USERNAME }}/weather-forecast-api:latest"
-          echo ""
-          echo "To deploy, run:"
-          echo "docker run -d -p 8000:8000 ${{ secrets.DOCKER_USERNAME }}/weather-forecast-api:latest"
+          IMAGE_NAME="${{ secrets.DOCKER_USERNAME }}/weather-forecast-api:latest"
+          
+          echo "=== Deployment Verification ==="
+          echo "Testing Docker image: $IMAGE_NAME"
+          
+          # Run container in detached mode
+          CONTAINER_ID=$(docker run -d -p 8000:8000 --name test-weather-api $IMAGE_NAME)
+          echo "Container started: $CONTAINER_ID"
+          
+          # Wait for service to be ready
+          echo "Waiting for service to start..."
+          sleep 10
+          
+          # Health check with retries
+          MAX_RETRIES=10
+          RETRY_COUNT=0
+          HEALTH_CHECK_PASSED=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -f http://localhost:8000/health > /dev/null 2>&1; then
+              HEALTH_CHECK_PASSED=true
+              echo "✅ Health check passed!"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "Health check attempt $RETRY_COUNT/$MAX_RETRIES failed, retrying..."
+              sleep 3
+            fi
+          done
+          
+          # Clean up container
+          docker stop $CONTAINER_ID > /dev/null 2>&1 || true
+          docker rm $CONTAINER_ID > /dev/null 2>&1 || true
+          
+          # Verify health check passed
+          if [ "$HEALTH_CHECK_PASSED" = false ]; then
+            echo "❌ Health check failed after $MAX_RETRIES attempts"
+            exit 1
+          fi
+          
+          echo "✅ Deployment verification successful!"
+          echo "Image: $IMAGE_NAME"
+          echo "Container verified and cleaned up"
 

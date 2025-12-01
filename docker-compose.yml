@@ -210,10 +210,13 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ALERTING_ENABLED=true
+      - GF_UNIFIED_ALERTING_ENABLED=true
     volumes:
       - grafana-data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-alert-logs:/var/log/grafana
     depends_on:
       - prometheus
     healthcheck:
@@ -247,6 +250,7 @@ volumes:
   airflow-logs:
   prometheus-data:
   grafana-data:
+  grafana-alert-logs:
   mlflow-data:
   minio-data:
 

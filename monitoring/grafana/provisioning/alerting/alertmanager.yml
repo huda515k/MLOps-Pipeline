@@ -1,0 +1,12 @@
+apiVersion: 1
+
+# Alertmanager configuration for Grafana
+# This file configures where alerts should be sent
+# For now, alerts will be stored in Grafana's internal alerting system
+# You can extend this to send to Slack, email, PagerDuty, etc.
+
+# Note: In Grafana 9+, unified alerting is enabled by default
+# Alerts can be configured to send notifications via:
+# - Grafana UI: Alerting → Notification channels
+# - Or via API/configuration files
+

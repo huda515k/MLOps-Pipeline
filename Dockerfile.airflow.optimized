@@ -1,35 +1,18 @@
-# Optimized Airflow Dockerfile - faster builds
 FROM apache/airflow:2.7.3-python3.9
 
-# Install system dependencies in one layer
+# Install system dependencies
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Switch to airflow user
 USER airflow
 
-# Copy requirements
+# Copy optimized requirements (consolidated for better caching)
 COPY requirements-optimized.txt /requirements.txt
 
-# Install Python packages with pip cache and parallel builds
-# Install in stages to leverage Docker layer caching
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir \
-    pandas>=2.0.0 numpy>=1.24.0 scikit-learn>=1.3.0 joblib>=1.3.0 pyarrow>=10.0.0 && \
-    pip install --no-cache-dir \
-    fastapi>=0.104.0 uvicorn>=0.24.0 pydantic>=2.5.0 requests>=2.31.0 && \
-    pip install --no-cache-dir \
-    mlflow>=2.9.0 dagshub>=0.3.19 && \
-    pip install --no-cache-dir \
-    dvc>=3.38.0 dvc-s3>=3.1.0 && \
-    pip install --no-cache-dir \
-    prometheus-client>=0.19.0 python-dotenv>=1.0.0 pyyaml>=6.0.0 && \
-    pip install --no-cache-dir \
-    pandas-profiling>=3.6.0
-
-# Note: Airflow is already in base image, so we don't need to reinstall it
+# Install Python dependencies in single layer for better caching
+RUN pip install --no-cache-dir -r /requirements.txt
 

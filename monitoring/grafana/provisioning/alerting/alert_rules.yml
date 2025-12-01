@@ -1,0 +1,207 @@
+apiVersion: 1
+
+# Notification channels for alerts
+# Alerts will be sent to the configured channels when they fire
+# Configure channels in Grafana UI: Alerting → Notification channels
+# Or use the notifiers.yml file in provisioning/notifiers/
+
+groups:
+  - name: weather_forecast_alerts
+    interval: 30s
+    orgId: 1
+    folder: Weather Forecast Alerts
+    rules:
+      # Alert 1: High Inference Latency
+      - uid: high_latency_alert
+        title: High Inference Latency
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: |
+                histogram_quantile(0.95, 
+                  rate(api_request_duration_seconds_bucket[5m])
+                )
+              refId: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+        noDataState: NoData
+        execErrState: Alerting
+        for: 2m
+        reducer: last
+        evaluator:
+          params:
+            - 0.5
+          type: gt
+        annotations:
+          description: "Inference latency (95th percentile) exceeds 500ms for more than 2 minutes"
+          summary: "High latency detected in prediction endpoint"
+          runbook_url: "https://github.com/huda515k/MLOps-Pipeline/wiki/Runbook#high-latency"
+        labels:
+          severity: warning
+          team: mlops
+          service: weather-forecast-api
+        notification_settings:
+          receiver: file_logger
+          group_wait: 10s
+          group_interval: 10s
+          repeat_interval: 12h
+
+      # Alert 2: Data Drift Detected
+      - uid: data_drift_alert
+        title: Data Drift Detected
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: |
+                avg_over_time(data_drift_ratio[5m])
+              refId: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+        noDataState: NoData
+        execErrState: Alerting
+        for: 5m
+        reducer: last
+        evaluator:
+          params:
+            - 0.5
+          type: gt
+        annotations:
+          description: "Data drift ratio exceeds 50% for more than 5 minutes. Model may need retraining."
+          summary: "Data drift detected - model performance may be degraded"
+          runbook_url: "https://github.com/huda515k/MLOps-Pipeline/wiki/Runbook#data-drift"
+        labels:
+          severity: critical
+          team: mlops
+          service: weather-forecast-api
+          action: retrain_model
+        notification_settings:
+          receiver: file_logger
+          group_wait: 5s
+          group_interval: 5s
+          repeat_interval: 1h
+
+      # Alert 3: High Error Rate
+      - uid: high_error_rate_alert
+        title: High Prediction Error Rate
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: |
+                rate(prediction_errors_total[5m]) / rate(predictions_total[5m])
+              refId: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+        noDataState: NoData
+        execErrState: Alerting
+        for: 3m
+        reducer: last
+        evaluator:
+          params:
+            - 0.1
+          type: gt
+        annotations:
+          description: "Error rate exceeds 10% for more than 3 minutes"
+          summary: "High error rate in prediction service"
+          runbook_url: "https://github.com/huda515k/MLOps-Pipeline/wiki/Runbook#high-error-rate"
+        labels:
+          severity: warning
+          team: mlops
+          service: weather-forecast-api
+        notification_settings:
+          receiver: file_logger
+          group_wait: 10s
+          group_interval: 10s
+          repeat_interval: 12h
+
+      # Alert 4: Service Down
+      - uid: service_down_alert
+        title: Service Down
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: |
+                up{job="fastapi-service"}
+              refId: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 1m
+        reducer: last
+        evaluator:
+          params:
+            - 0
+          type: eq
+        annotations:
+          description: "FastAPI service is down or not responding to Prometheus scrapes"
+          summary: "Weather Forecast API service is unavailable"
+          runbook_url: "https://github.com/huda515k/MLOps-Pipeline/wiki/Runbook#service-down"
+        labels:
+          severity: critical
+          team: mlops
+          service: weather-forecast-api
+          action: restart_service
+        notification_settings:
+          receiver: file_logger
+          group_wait: 5s
+          group_interval: 5s
+          repeat_interval: 30m
+
+      # Alert 5: No Predictions
+      - uid: no_predictions_alert
+        title: No Predictions Received
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: |
+                rate(predictions_total[10m])
+              refId: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+        noDataState: NoData
+        execErrState: OK
+        for: 10m
+        reducer: last
+        evaluator:
+          params:
+            - 0
+          type: eq
+        annotations:
+          description: "No predictions have been made in the last 10 minutes"
+          summary: "Service may be idle or experiencing issues"
+          runbook_url: "https://github.com/huda515k/MLOps-Pipeline/wiki/Runbook#no-predictions"
+        labels:
+          severity: info
+          team: mlops
+          service: weather-forecast-api
+        notification_settings:
+          receiver: file_logger
+          group_wait: 30s
+          group_interval: 30s
+          repeat_interval: 24h
+
